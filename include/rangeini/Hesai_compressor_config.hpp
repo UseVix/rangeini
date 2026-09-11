@@ -3,6 +3,7 @@
 #include "rangeini/compressor_config.hpp"
 #include "rangeini/compressor.hpp"
 #include "rangeini/decompressor.hpp"
+#include "hesai_ros_driver/msg/udp_frame.hpp"
 namespace config_presets {
 CompressorConfig MakeHesaiXT32Config();
 CompressorConfig MakeHesaiJT128Config();

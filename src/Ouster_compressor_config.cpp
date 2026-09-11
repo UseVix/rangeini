@@ -34,7 +34,9 @@ void Ouster_Compressor::lidar_msg_callback(const ouster_sensor_msgs::msg::Packet
     throw;
   }
   packet_count += 1;
-  CompressAndPublishSwitching(std_msgs::msg::Header{});
+  std_msgs::msg::Header header;
+  header.stamp = this->now();
+  CompressAndPublishSwitching(header);
 }
 
 

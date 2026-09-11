@@ -8,7 +8,6 @@
 #include "rclcpp/rclcpp.hpp"
 #include "cloudini_lib/field_encoder.hpp"
 #include "cloudini_lib/cloudini.hpp"
-#include "hesai_ros_driver/msg/udp_frame.hpp"
 #include "rangeini/msg/compressed_lidar_packets.hpp"
 #include "lz4.h"
 #include "zstd.h"

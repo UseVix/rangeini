@@ -3,6 +3,7 @@
 #include "rangeini/compressor_config.hpp"
 #include "rangeini/compressor.hpp"
 #include "rangeini/decompressor.hpp"
+#include "ouster_sensor_msgs/msg/packet_msg.hpp"
 namespace config_presets {
 CompressorConfig MakeOusterOs0128Config();
 }

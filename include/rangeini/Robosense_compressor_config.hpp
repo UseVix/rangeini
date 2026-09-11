@@ -3,6 +3,7 @@
 #include "rangeini/compressor_config.hpp"
 #include "rangeini/compressor.hpp"
 #include "rangeini/decompressor.hpp"
+#include "rslidar_msg/msg/rslidar_packet.hpp"
 namespace config_presets {
 CompressorConfig MakeRobosenseAiryConfig();
 }
