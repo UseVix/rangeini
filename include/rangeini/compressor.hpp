@@ -20,8 +20,68 @@
 using BufferView = Span<uint8_t>;
 using ConstBufferView = Span<const uint8_t>;
 
+template <typename IntType>
+int64_t ReadBigEndian(const uint8_t* data) {
+  using UnsignedType = std::make_unsigned_t<IntType>;
+  UnsignedType value = 0;
+  for (size_t i = 0; i < sizeof(IntType); ++i) {
+    value = static_cast<UnsignedType>((value << 8) | data[i]);
+  }
+  return static_cast<int64_t>(value);
+}
 
 
+template <typename IntType>
+class FieldEncoderIntMasked : public Cloudini::FieldEncoder {
+ public:
+  FieldEncoderIntMasked(size_t field_offset, uint64_t mask) : offset_(field_offset), mask_(mask) {
+    static_assert(std::is_integral<IntType>::value, "FieldEncoderIntMasked requires an integral type");
+  }
+
+  size_t encode(const ConstBufferView& point_view, BufferView& output) override {
+    int64_t value = Cloudini::ToInt64<IntType>(point_view.data() + offset_);
+    value &= mask_;
+    int64_t diff = value - prev_value_;
+    prev_value_ = value;
+    int64_t var_size = Cloudini::encodeVarint64(diff, output.data());
+    output.trim_front(var_size);
+    return var_size;
+  }
+
+  void reset() override {
+    prev_value_ = 0;
+  }
+
+ private:
+  int64_t prev_value_ = 0;
+  size_t offset_ = 0;
+  uint64_t mask_ =std::numeric_limits<int64_t>::max();
+};
+template <typename IntType>
+class FieldEncoderIntBigEndian : public Cloudini::FieldEncoder {
+ public:
+  explicit FieldEncoderIntBigEndian(size_t field_offset) : offset_(field_offset) {
+    static_assert(std::is_integral<IntType>::value, "FieldEncoderInt requires an integral type");
+  }
+
+  size_t encode(const ConstBufferView& point_view, BufferView& output) override {
+    int64_t value = ReadBigEndian<IntType>(point_view.data() + offset_);
+    int64_t diff = value - prev_value_;
+    prev_value_ = value;
+    int64_t var_size = Cloudini::encodeVarint64(diff, output.data());
+    output.trim_front(var_size);
+    return var_size;
+  }
+
+  void reset() override {
+    prev_value_ = 0;
+  }
+
+ private:
+  int64_t prev_value_ = 0;
+  size_t offset_ = 0;
+  uint64_t mask_ =std::numeric_limits<int64_t>::max();
+};
 template <typename MsgT>
 class Compressor : public rclcpp::Node
 {

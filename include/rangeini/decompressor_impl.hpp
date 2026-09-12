@@ -5,7 +5,41 @@
 using BufferView = Span<uint8_t>;
 using ConstBufferView = Span<const uint8_t>;
 namespace {
-  std::unique_ptr<Cloudini::FieldDecoder> CreateDecoder(Cloudini::FieldType type, size_t offset) {
+  std::unique_ptr<Cloudini::FieldDecoder> CreateDecoder(const FieldEncodeConfig& field_config) {
+    const auto type = field_config.type;
+    const auto offset = field_config.offset;
+
+    if (field_config.copy) {
+      return std::make_unique<Cloudini::FieldDecoderCopy>(offset, type);
+    }
+
+    if (field_config.merge) {
+      switch (type) {
+        case Cloudini::FieldType::INT8: return std::make_unique<FieldDecoderIntMerging<int8_t>>(offset);
+        case Cloudini::FieldType::UINT8: return std::make_unique<FieldDecoderIntMerging<uint8_t>>(offset);
+        case Cloudini::FieldType::INT16: return std::make_unique<FieldDecoderIntMerging<int16_t>>(offset);
+        case Cloudini::FieldType::UINT16: return std::make_unique<FieldDecoderIntMerging<uint16_t>>(offset);
+        case Cloudini::FieldType::INT32: return std::make_unique<FieldDecoderIntMerging<int32_t>>(offset);
+        case Cloudini::FieldType::UINT32: return std::make_unique<FieldDecoderIntMerging<uint32_t>>(offset);
+        case Cloudini::FieldType::INT64: return std::make_unique<FieldDecoderIntMerging<int64_t>>(offset);
+        case Cloudini::FieldType::UINT64: return std::make_unique<FieldDecoderIntMerging<uint64_t>>(offset);
+        default: throw std::runtime_error("Unsupported field type for merging decoder");
+      }
+    }
+    if (field_config.big_endian) {
+      switch (type) {
+        case Cloudini::FieldType::INT8: return std::make_unique<FieldDecoderIntBigEndian<int8_t>>(offset);
+        case Cloudini::FieldType::UINT8: return std::make_unique<FieldDecoderIntBigEndian<uint8_t>>(offset);
+        case Cloudini::FieldType::INT16: return std::make_unique<FieldDecoderIntBigEndian<int16_t>>(offset);
+        case Cloudini::FieldType::UINT16: return std::make_unique<FieldDecoderIntBigEndian<uint16_t>>(offset);
+        case Cloudini::FieldType::INT32: return std::make_unique<FieldDecoderIntBigEndian<int32_t>>(offset);
+        case Cloudini::FieldType::UINT32: return std::make_unique<FieldDecoderIntBigEndian<uint32_t>>(offset);
+        case Cloudini::FieldType::INT64: return std::make_unique<FieldDecoderIntBigEndian<int64_t>>(offset);
+        case Cloudini::FieldType::UINT64: return std::make_unique<FieldDecoderIntBigEndian<uint64_t>>(offset);
+        default: throw std::runtime_error("Unsupported field type for merging decoder");
+      }
+    }
+
     switch (type) {
       case Cloudini::FieldType::INT8: return std::make_unique<Cloudini::FieldDecoderInt<int8_t>>(offset);
       case Cloudini::FieldType::UINT8: return std::make_unique<Cloudini::FieldDecoderInt<uint8_t>>(offset);
@@ -15,6 +49,7 @@ namespace {
       case Cloudini::FieldType::UINT32: return std::make_unique<Cloudini::FieldDecoderInt<uint32_t>>(offset);
       case Cloudini::FieldType::INT64: return std::make_unique<Cloudini::FieldDecoderInt<int64_t>>(offset);
       case Cloudini::FieldType::UINT64: return std::make_unique<Cloudini::FieldDecoderInt<uint64_t>>(offset);
+      
       default: throw std::runtime_error("Unsupported field type for decoder");
     }
   }
@@ -25,13 +60,13 @@ Decompressor<MsgT>::Decompressor(CompressorConfig config)
   config_(std::move(config))
 {
   for (const auto& field : config_.scan_fields) {
-    scan_decoders.push_back(CreateDecoder(field.first, field.second));
+    scan_decoders.push_back(CreateDecoder(field));
   }
   for (const auto& field : config_.point_fields) {
-    point_decoders.push_back(CreateDecoder(field.first, field.second));
+    point_decoders.push_back(CreateDecoder(field));
   }
 
-  publisher_ = this->create_publisher<MsgT>("/lidar_packets_decompressed", 10);
+  publisher_ = this->create_publisher<MsgT>("/lidar_packets_decompressed", 1000);
   
   is_loaning_available = publisher_->can_loan_messages();
   if (is_loaning_available) {
@@ -81,6 +116,7 @@ void Decompressor<MsgT>::PacketDecompression(ConstBufferView &input_view, Buffer
       }
       output_view.trim_front(config_.point_size);
     }
+    output_view.trim_front(config_.per_block_offset_end);
   }
 
   memcpy(output_view.data(), input_view.data(), config_.tail_data_size);

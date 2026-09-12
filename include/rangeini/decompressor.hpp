@@ -31,6 +31,73 @@
 using BufferView = Span<uint8_t>;
 using ConstBufferView = Span<const uint8_t>;
 
+template <typename IntType>
+void WriteBigEndian(uint8_t* data, int64_t value) {
+  using UnsignedType = std::make_unsigned_t<IntType>;
+  UnsignedType unsigned_value = static_cast<UnsignedType>(value);
+  for (size_t i = 0; i < sizeof(IntType); ++i) {
+    data[sizeof(IntType) - 1 - i] = static_cast<uint8_t>(unsigned_value & 0xff);
+    unsigned_value >>= 8;
+  }
+}
+
+template <typename IntType>
+class FieldDecoderIntBigEndian : public Cloudini::FieldDecoder {
+ public:
+  explicit FieldDecoderIntBigEndian(size_t field_offset) : offset_(field_offset) {
+    static_assert(std::is_integral<IntType>::value, "FieldDecoderInt requires an integral type");
+    min_input_bytes_ = 1;  // smallest varint is 1 byte
+  }
+
+  void decode(ConstBufferView& input, BufferView dest_point_view) override {
+    int64_t diff = 0;
+    auto count = Cloudini::decodeVarint(input.data(), input.size(), diff);
+
+    int64_t value = prev_value_ + diff;
+    prev_value_ = value;
+    if (offset_ != Cloudini::kDecodeButSkipStore) {
+      WriteBigEndian<IntType>(dest_point_view.data() + offset_, value);
+    }
+    input.trim_front(count);
+  }
+
+  void reset() override {
+    prev_value_ = 0;
+  }
+
+ private:
+  int64_t prev_value_ = 0;
+  size_t offset_;
+};
+template <typename IntType>
+class FieldDecoderIntMerging : public Cloudini::FieldDecoder {
+ public:
+  explicit FieldDecoderIntMerging(size_t field_offset) : offset_(field_offset) {
+    static_assert(std::is_integral<IntType>::value, "FieldDecoderInt requires an integral type");
+    min_input_bytes_ = 1;  // smallest varint is 1 byte
+  }
+
+  void decode(ConstBufferView& input, BufferView dest_point_view) override {
+    int64_t diff = 0;
+    auto count = Cloudini::decodeVarint(input.data(), input.size(), diff);
+
+    int64_t value = prev_value_ + diff;
+    prev_value_ = value;
+    value = (int64_t)dest_point_view.data()[offset_] | value;
+    if (offset_ != Cloudini::kDecodeButSkipStore) {
+      memcpy(dest_point_view.data() + offset_, &value, sizeof(IntType));
+    }
+    input.trim_front(count);
+  }
+
+  void reset() override {
+    prev_value_ = 0;
+  }
+
+ private:
+  int64_t prev_value_ = 0;
+  size_t offset_;
+};
 
 template <typename MsgT>
 class Decompressor : public rclcpp::Node

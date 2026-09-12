@@ -1,4 +1,5 @@
 #include "rangeini/Hesai_compressor_config.hpp"
+#include <chrono>
 namespace config_presets {
   CompressorConfig MakeHesaiXT32Config() {
     CompressorConfig config{};
@@ -12,11 +13,11 @@ namespace config_presets {
     config.packets_in_chunk = 500;
     config.chunk_point_size = config.channel_count * config.block_count * config.packets_in_chunk;
     config.max_buffer_size = config.packets_in_chunk * config.packet_size * 3 / 2;
-    config.info_.compression_opt = Cloudini::CompressionOption::LZ4;
-    config.info_.use_threads = true;
-    config.scan_fields.push_back({Cloudini::FieldType::UINT16, 0});
-    config.point_fields.push_back({Cloudini::FieldType::UINT16, 0});
-    config.point_fields.push_back({Cloudini::FieldType::UINT8, 2});
+    config.info_.compression_opt = Cloudini::CompressionOption::ZSTD;
+    config.info_.use_threads = false;
+    config.scan_fields.push_back({.type = Cloudini::FieldType::UINT16, .offset = 0});
+    config.point_fields.push_back({.type = Cloudini::FieldType::UINT16, .offset = 0});
+    config.point_fields.push_back({.type = Cloudini::FieldType::UINT8, .offset = 2});
     return config;
   }
   CompressorConfig MakeHesaiJT128Config() {
@@ -27,16 +28,16 @@ namespace config_presets {
     config.channel_count = 128;
     config.block_count = 2;
     config.packet_size = 1100;
-    config.tail_data_size = 56;
-    config.packets_in_chunk = 500;
+    config.tail_data_size = 60;
+    config.packets_in_chunk = 450;
     config.chunk_point_size = config.channel_count * config.block_count * config.packets_in_chunk;
     config.max_buffer_size = config.packets_in_chunk * config.packet_size * 3 / 2;
-    config.info_.compression_opt = Cloudini::CompressionOption::LZ4;
-    config.info_.use_threads = true;
-    config.scan_fields.push_back({Cloudini::FieldType::UINT16, 0});
-    config.point_fields.push_back({Cloudini::FieldType::UINT16, 0});
-    config.point_fields.push_back({Cloudini::FieldType::UINT8, 2});
-    config.point_fields.push_back({Cloudini::FieldType::UINT8, 3});
+    config.info_.compression_opt = Cloudini::CompressionOption::ZSTD;
+    config.info_.use_threads = false;
+    config.scan_fields.push_back({.type = Cloudini::FieldType::UINT16, .offset = 0});
+    config.point_fields.push_back({.type = Cloudini::FieldType::UINT16, .offset = 0});
+    config.point_fields.push_back({.type = Cloudini::FieldType::UINT8, .offset = 2});
+    config.point_fields.push_back({.type = Cloudini::FieldType::UINT8, .offset = 3});
     return config;
   }
 }
@@ -49,7 +50,11 @@ void Hesai_Compressor::lidar_msg_callback(const hesai_ros_driver::msg::UdpFrame:
       p, msg->packets.size(), buffer_view.size(), buffer_size, packet_count, point_count, packet.data.size());
     try {
       ConstBufferView input_view(packet.data.data(), packet.data.size());
+      auto t1 = std::chrono::high_resolution_clock::now();
       PacketCompression(input_view);
+      auto t2 = std::chrono::high_resolution_clock::now();
+      auto total_time = std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count();
+      RCLCPP_DEBUG(this->get_logger(), "PacketCompression time: %ld ns", total_time);
     } catch (const std::exception& e) {
       RCLCPP_ERROR(this->get_logger(),
         "PacketCompression FAILED at packet %zu/%zu: buffer_view.size()=%zu, buffer_size=%zu, packet_count=%u, point_count=%d, packet.data.size()=%zu, error: %s",
@@ -58,7 +63,13 @@ void Hesai_Compressor::lidar_msg_callback(const hesai_ros_driver::msg::UdpFrame:
     }
   }
   packet_count += msg->packets.size();
-  CompressAndPublishSwitching(msg->header);
+  if (point_count >= config_.chunk_point_size) {
+    auto t1 = std::chrono::high_resolution_clock::now();
+    CompressAndPublishSwitching(msg->header);
+    auto t2 = std::chrono::high_resolution_clock::now();
+    auto total_time = std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count();
+    RCLCPP_DEBUG(this->get_logger(), "CompressAndPublishSwitching time: %ld ns", total_time);
+  }
 }
 
 void Hesai_Decompressor::PacketsDecompression(std::vector<uint8_t>& compressed_packets_buffer, hesai_ros_driver::msg::UdpFrame& msg_ref, const uint32_t& packet_count, const std_msgs::msg::Header& published_header) {
@@ -86,6 +97,7 @@ void Hesai_Decompressor::PacketsDecompression(std::vector<uint8_t>& compressed_p
   }
 }
 void Hesai_Decompressor::DecompressAndPublish(std::vector<uint8_t>& compressed_packets_buffer, const uint32_t& packet_count, const std_msgs::msg::Header& published_header) {
+  auto t1 = std::chrono::high_resolution_clock::now();
   if (is_loaning_available) {
     auto loaned_msg = publisher_->borrow_loaned_message();
     PacketsDecompression(compressed_packets_buffer, loaned_msg.get(),packet_count,published_header);
@@ -95,5 +107,8 @@ void Hesai_Decompressor::DecompressAndPublish(std::vector<uint8_t>& compressed_p
     PacketsDecompression(compressed_packets_buffer, preallocated_msg[0],packet_count,published_header);
     publisher_->publish(preallocated_msg[0]);
   }
+  auto t2 = std::chrono::high_resolution_clock::now();
+  auto total_time = std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count();
+  RCLCPP_DEBUG(this->get_logger(), "DecompressAndPublish time: %ld ns", total_time);
 }
 

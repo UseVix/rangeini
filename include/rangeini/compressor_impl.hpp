@@ -2,7 +2,37 @@
 
 
 namespace {
-  std::unique_ptr<Cloudini::FieldEncoder> CreateEncoder(Cloudini::FieldType type, size_t offset) {
+  std::unique_ptr<Cloudini::FieldEncoder> CreateEncoder(const FieldEncodeConfig& field_config) {
+    const auto type = field_config.type;
+    const auto offset = field_config.offset;
+    const auto mask = field_config.mask;
+    if (field_config.copy) {
+      return std::make_unique<Cloudini::FieldEncoderCopy>(offset, type);
+    }
+    if (field_config.mask != std::numeric_limits<int64_t>::max()) {
+      switch (type) {
+        case Cloudini::FieldType::INT8: return std::make_unique<FieldEncoderIntMasked<int8_t>>(offset, mask);
+        case Cloudini::FieldType::UINT8: return std::make_unique<FieldEncoderIntMasked<uint8_t>>(offset, mask);
+        case Cloudini::FieldType::INT16: return std::make_unique<FieldEncoderIntMasked<int16_t>>(offset, mask);
+        case Cloudini::FieldType::UINT16: return std::make_unique<FieldEncoderIntMasked<uint16_t>>(offset, mask);
+        case Cloudini::FieldType::INT32: return std::make_unique<FieldEncoderIntMasked<int32_t>>(offset, mask);
+        case Cloudini::FieldType::UINT32: return std::make_unique<FieldEncoderIntMasked<uint32_t>>(offset, mask);
+        case Cloudini::FieldType::INT64: return std::make_unique<FieldEncoderIntMasked<int64_t>>(offset, mask);
+        case Cloudini::FieldType::UINT64: return std::make_unique<FieldEncoderIntMasked<uint64_t>>(offset, mask);
+      }
+    }
+    if (field_config.big_endian) {
+      switch (type) {
+        case Cloudini::FieldType::INT8: return std::make_unique<FieldEncoderIntBigEndian<int8_t>>(offset);
+        case Cloudini::FieldType::UINT8: return std::make_unique<FieldEncoderIntBigEndian<uint8_t>>(offset);
+        case Cloudini::FieldType::INT16: return std::make_unique<FieldEncoderIntBigEndian<int16_t>>(offset);
+        case Cloudini::FieldType::UINT16: return std::make_unique<FieldEncoderIntBigEndian<uint16_t>>(offset);
+        case Cloudini::FieldType::INT32: return std::make_unique<FieldEncoderIntBigEndian<int32_t>>(offset);
+        case Cloudini::FieldType::UINT32: return std::make_unique<FieldEncoderIntBigEndian<uint32_t>>(offset);
+        case Cloudini::FieldType::INT64: return std::make_unique<FieldEncoderIntBigEndian<int64_t>>(offset);
+        case Cloudini::FieldType::UINT64: return std::make_unique<FieldEncoderIntBigEndian<uint64_t>>(offset);
+      }
+    }
     switch (type) {
       case Cloudini::FieldType::INT8: return std::make_unique<Cloudini::FieldEncoderInt<int8_t>>(offset);
       case Cloudini::FieldType::UINT8: return std::make_unique<Cloudini::FieldEncoderInt<uint8_t>>(offset);
@@ -22,10 +52,10 @@ Compressor<MsgT>::Compressor(CompressorConfig config)
   config_(std::move(config))
 {
   for (const auto& field : config_.scan_fields) {
-    scan_encoders.push_back(CreateEncoder(field.first, field.second));
+    scan_encoders.push_back(CreateEncoder(field));
   }
   for (const auto& field : config_.point_fields) {
-    point_encoders.push_back(CreateEncoder(field.first, field.second));
+    point_encoders.push_back(CreateEncoder(field));
   }
   publisher_ = this->create_publisher<rangeini::msg::CompressedLidarPackets>("/compressed_lidar_packets", 10);
   is_loaning_available = publisher_->can_loan_messages();
@@ -66,6 +96,7 @@ void Compressor<MsgT>::PacketCompression(ConstBufferView &input_view)
 
   for (int block_idx = 0; block_idx < config_.block_count; ++block_idx) {
     for (auto& encoder : scan_encoders) {
+      
       buffer_size += encoder->encode(input_view, buffer_view);
     }
 
@@ -77,7 +108,7 @@ void Compressor<MsgT>::PacketCompression(ConstBufferView &input_view)
       }
       input_view.trim_front(config_.point_size);
     }
-
+    input_view.trim_front(config_.per_block_offset_end);
   }
   memcpy(buffer_view.data(), input_view.data(), config_.tail_data_size);
   buffer_view.trim_front(config_.tail_data_size);
@@ -193,7 +224,7 @@ void Compressor<MsgT>::CompressAndPublishParallelised() {
 }
 template <typename MsgT>
 void Compressor<MsgT>::CompressAndPublishSwitching(std_msgs::msg::Header& header) {
-  if (point_count >= config_.chunk_point_size) {
+  
     if (config_.info_.use_threads) {
       waitForCompressionComplete();
       // swap buffers and start compressing in the other thread
@@ -214,7 +245,6 @@ void Compressor<MsgT>::CompressAndPublishSwitching(std_msgs::msg::Header& header
       CompressAndPublish(buffer);
     }
     ResetCompressorState();
-  }
 }
 
 
