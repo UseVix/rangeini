@@ -61,6 +61,7 @@ void Ouster_Compressor::lidar_msg_callback(const ouster_sensor_msgs::msg::Packet
 
 
 void Ouster_Decompressor::DecompressAndPublish(std::vector<uint8_t>& compressed_packets_buffer, const uint32_t& packet_count, const std_msgs::msg::Header& published_header) {
+  auto t1 = std::chrono::high_resolution_clock::now();
   preallocated_msg.resize(packet_count);
   for (auto& decoder : scan_decoders) {
       decoder->reset();
@@ -86,5 +87,8 @@ void Ouster_Decompressor::DecompressAndPublish(std::vector<uint8_t>& compressed_
       publisher_->publish(preallocated_msg[i]);
     }
   }
+  auto t2 = std::chrono::high_resolution_clock::now();
+  auto total_time = std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count();
+  RCLCPP_DEBUG(this->get_logger(), "DecompressAndPublish time: %ld ns", total_time);
 }
 
